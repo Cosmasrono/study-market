@@ -6,32 +6,29 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
-    public function up(): void
+    public function up()
     {
         Schema::create('membership_payments', function (Blueprint $table) {
             $table->id();
             $table->foreignId('user_id')->constrained()->onDelete('cascade');
             $table->decimal('amount', 10, 2);
-            $table->string('payment_method')->default('mpesa'); // mpesa, card, bank_transfer
-            $table->string('transaction_id')->unique();
-            $table->string('reference_id')->nullable(); // External payment gateway reference
-            $table->enum('status', ['pending', 'completed', 'failed', 'cancelled'])->default('pending');
-            $table->string('payment_gateway')->nullable(); // safaricom, stripe, paypal etc
-            $table->json('payment_data')->nullable(); // Store additional payment info
-            $table->string('phone_number')->nullable(); // For M-Pesa payments
-            $table->datetime('paid_at')->nullable();
+            $table->string('phone_number');
+            $table->string('reference')->unique()->index();
+            $table->string('transaction_reference')->unique()->index();
+            $table->string('payhero_reference')->nullable();
+            $table->string('customer_name')->nullable();
+            $table->string('status')->default('pending'); // pending, completed, failed
+            $table->string('payment_method')->default('payhero');
+            $table->string('subscription_duration')->default('1_year'); // '3_months', '6_months', '9_months', '1_year'
+            $table->boolean('is_renewal')->default(false);
+            $table->timestamp('paid_at')->nullable();
+            $table->string('mpesa_receipt_number')->nullable();
             $table->text('failure_reason')->nullable();
             $table->timestamps();
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
-    public function down(): void
+    public function down()
     {
         Schema::dropIfExists('membership_payments');
     }

@@ -2,22 +2,31 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Laravel\Sanctum\HasApiTokens;
 use Carbon\Carbon;
 
 class User extends Authenticatable
 {
-    use HasFactory, Notifiable;
+    use HasApiTokens, HasFactory, Notifiable;
+
+    const MEMBERSHIP_FEE = 2000; // Base annual fee
 
     protected $fillable = [
         'name',
         'email',
         'password',
+        'phone_number',
         'membership_status',
+        'current_subscription_type',
+        'subscription_end_date',
+        'is_subscription_active',
         'membership_expires_at',
         'membership_fee_paid',
+        'email_notifications_enabled',
+        'site_notifications_enabled',
     ];
 
     protected $hidden = [
@@ -28,20 +37,33 @@ class User extends Authenticatable
     protected $casts = [
         'email_verified_at' => 'datetime',
         'membership_expires_at' => 'datetime',
-        'membership_fee_paid' => 'decimal:2'
+        'subscription_end_date' => 'datetime',
+        'membership_fee_paid' => 'decimal:2',
+        'is_subscription_active' => 'boolean',
+        'email_notifications_enabled' => 'boolean',
+        'site_notifications_enabled' => 'boolean',
     ];
 
-    // Membership constants
-    const MEMBERSHIP_FEE = 1; // KES 1 for demo
-    const MEMBERSHIP_DURATION_MONTHS = 12; // 1 year
+    // Static method to get subscription prices
+    public static function getSubscriptionPrices()
+    {
+        return [
+            '3_months' => 1,
+            '6_months' => 2,
+            '9_months' => 3,
+            '1_year' => 4
+        ];
+    }
 
-    // =============================================================================
-    // RELATIONSHIPS
-    // =============================================================================
-    
+    // Relationships
     public function membershipPayments()
     {
         return $this->hasMany(MembershipPayment::class);
+    }
+
+    public function transactions()
+    {
+        return $this->hasMany(Transaction::class);
     }
 
     public function enrollments()
@@ -59,256 +81,190 @@ class User extends Authenticatable
         return $this->hasMany(Payment::class);
     }
 
-    public function bookPurchases()
-    {
-        return $this->hasMany(BookPurchase::class);
-    }
-
-    public function ownedBooks()
-    {
-        return $this->belongsToMany(Book::class, 'book_purchases')
-            ->wherePivot('status', 'completed');
-    }
-
-    // =============================================================================
-    // MEMBERSHIP STATUS METHODS
-    // =============================================================================
-    
     /**
-     * Check if user has active membership
+     * User testimonials relationship
      */
+    public function testimonials()
+    {
+        return $this->hasMany(Testimonial::class);
+    }
+  
+    // Membership status methods
     public function hasMembership()
     {
-        return $this->membership_expires_at && 
-               $this->membership_expires_at->isFuture();
+        return $this->is_subscription_active && 
+               $this->subscription_end_date && 
+               $this->subscription_end_date->isFuture();
     }
 
-    /**
-     * Check if membership is pending payment
-     */
     public function membershipPending()
     {
         return $this->membership_status === 'pending';
     }
 
-    /**
-     * Check if membership has expired
-     */
     public function membershipExpired()
     {
         return $this->membership_status === 'expired' || 
-               ($this->membership_expires_at && $this->membership_expires_at->isPast());
+               ($this->subscription_end_date && $this->subscription_end_date->isPast());
     }
 
-    /**
-     * Check if membership is suspended
-     */
-    public function membershipSuspended()
+    public function membershipActive()
     {
-        return $this->membership_status === 'suspended';
+        return $this->membership_status === 'active' && $this->hasMembership();
     }
 
-    // =============================================================================
-    // MEMBERSHIP ACTIONS
-    // =============================================================================
-    
-    /**
-     * Activate membership after payment
-     */
-    public function activateMembership()
-    {
-        $this->update([
-            'membership_status' => 'active',
-            'membership_expires_at' => now()->addMonths(self::MEMBERSHIP_DURATION_MONTHS),
-            'membership_fee_paid' => self::MEMBERSHIP_FEE
-        ]);
-        
-        \Log::info('Membership activated for user', [
-            'user_id' => $this->id,
-            'expires_at' => $this->membership_expires_at
-        ]);
-    }
-
-    /**
-     * Expire membership
-     */
-    public function expireMembership()
-    {
-        $this->update([
-            'membership_status' => 'expired'
-        ]);
-    }
-
-    /**
-     * Suspend membership
-     */
-    public function suspendMembership($reason = null)
-    {
-        $this->update([
-            'membership_status' => 'suspended'
-        ]);
-        
-        \Log::info('Membership suspended for user', [
-            'user_id' => $this->id,
-            'reason' => $reason
-        ]);
-    }
-
-    // =============================================================================
-    // MEMBERSHIP ATTRIBUTES & UTILITIES
-    // =============================================================================
-    
-    /**
-     * Get membership status label
-     */
-    public function getMembershipStatusLabelAttribute()
-    {
-        return match($this->membership_status) {
-            'pending' => 'Payment Pending',
-            'active' => 'Active',
-            'expired' => 'Expired',
-            'suspended' => 'Suspended',
-            default => 'Unknown'
-        };
-    }
-
-    /**
-     * Get days until membership expires
-     */
+    // Get days until membership expires
     public function getDaysUntilExpiryAttribute()
     {
-        if (!$this->membership_expires_at) {
-            return null;
-        }
-
-        return now()->diffInDays($this->membership_expires_at, false);
-    }
-
-    /**
-     * Get membership progress percentage (for UI)
-     */
-    public function getMembershipProgressAttribute()
-    {
-        if (!$this->hasMembership()) {
+        if (!$this->subscription_end_date) {
             return 0;
         }
 
-        $startDate = $this->membership_expires_at->copy()->subMonths(self::MEMBERSHIP_DURATION_MONTHS);
-        $totalDays = $startDate->diffInDays($this->membership_expires_at);
-        $daysUsed = $startDate->diffInDays(now());
+        $now = Carbon::now();
+        $expiry = Carbon::parse($this->subscription_end_date);
 
-        return min(100, max(0, ($daysUsed / $totalDays) * 100));
-    }
-
-    // =============================================================================
-    // ACCESS CONTROL METHODS
-    // =============================================================================
-    
-    /**
-     * Check if user has access to a specific book
-     */
-    public function hasAccess($bookId)
-    {
-        // Must have active membership
-        if (!$this->hasMembership()) {
-            return false;
+        if ($expiry->isPast()) {
+            return 0;
         }
 
-        return $this->bookPurchases()
-            ->where('book_id', $bookId)
-            ->where('status', 'completed')
-            ->exists();
+        return $now->diffInDays($expiry);
     }
 
-    /**
-     * Purchase a book (requires active membership)
-     */
-    public function purchaseBook(Book $book, $paymentMethod = 'mpesa')
+    // Get membership expiry status with color coding
+    public function getMembershipStatusWithDaysAttribute()
     {
-        if (!$this->hasMembership()) {
-            throw new \Exception('Active membership required to purchase books');
+        $days = $this->days_until_expiry;
+        
+        if ($days <= 0) {
+            return [
+                'status' => 'Expired',
+                'days' => 0,
+                'color' => 'red',
+                'message' => 'Membership has expired'
+            ];
+        } elseif ($days <= 7) {
+            return [
+                'status' => 'Expiring Soon',
+                'days' => $days,
+                'color' => 'red',
+                'message' => "Expires in {$days} day(s)"
+            ];
+        } elseif ($days <= 30) {
+            return [
+                'status' => 'Expiring',
+                'days' => $days,
+                'color' => 'yellow',
+                'message' => "Expires in {$days} day(s)"
+            ];
+        } else {
+            return [
+                'status' => 'Active',
+                'days' => $days,
+                'color' => 'green',
+                'message' => "Expires in {$days} day(s)"
+            ];
         }
+    }
 
-        return $this->bookPurchases()->create([
-            'book_id' => $book->id,
-            'amount' => $book->price,
-            'status' => 'completed',
-            'payment_method' => $paymentMethod,
-            'transaction_id' => 'BOOK_' . time() . '_' . uniqid()
+    // Activate membership with subscription
+    public function activateMembership($duration = '1_year', $price = null)
+    {
+        $durations = [
+            '3_months' => 3,
+            '6_months' => 6,
+            '9_months' => 9,
+            '1_year' => 12
+        ];
+
+        $months = $durations[$duration] ?? 12;
+        $subscriptionPrice = $price ?? self::getSubscriptionPrices()[$duration] ?? self::MEMBERSHIP_FEE;
+
+        $this->update([
+            'membership_status' => 'active',
+            'membership_expires_at' => now()->addMonths($months), // Keep for backward compatibility
+            'subscription_end_date' => now()->addMonths($months),
+            'current_subscription_type' => $duration,
+            'current_subscription_price' => $subscriptionPrice,
+            'is_subscription_active' => true,
+        ]);
+
+        \Log::info('Membership activated', [
+            'user_id' => $this->id,
+            'duration' => $duration,
+            'price' => $subscriptionPrice,
+            'expires_at' => $this->subscription_end_date
         ]);
     }
 
-    // =============================================================================
-    // MEMBERSHIP PAYMENT HELPERS
-    // =============================================================================
-    
-    /**
-     * Get latest membership payment
-     */
-    public function getLatestMembershipPayment()
+    // Extend membership
+    public function extendMembership($months)
     {
-        return $this->membershipPayments()->latest()->first();
+        $currentExpiry = $this->subscription_end_date ?? now();
+        
+        // If membership is expired, extend from now, otherwise extend from current expiry
+        if ($this->membershipExpired()) {
+            $newExpiry = now()->addMonths($months);
+        } else {
+            $newExpiry = $currentExpiry->addMonths($months);
+        }
+
+        $this->update([
+            'membership_status' => 'active',
+            'membership_expires_at' => $newExpiry,
+            'subscription_end_date' => $newExpiry,
+            'is_subscription_active' => true,
+        ]);
     }
 
-    /**
-     * Get pending membership payment
-     */
+    // Get pending membership payment
     public function getPendingMembershipPayment()
     {
-        return $this->membershipPayments()->where('status', 'pending')->first();
+        return $this->membershipPayments()
+            ->where('status', 'pending')
+            ->latest()
+            ->first();
     }
 
-    /**
-     * Has any completed membership payments
-     */
-    public function hasCompletedMembershipPayments()
+    // Check if membership expires within given days
+    public function membershipExpiresWithin($days)
     {
-        return $this->membershipPayments()->where('status', 'completed')->exists();
+        if (!$this->subscription_end_date) {
+            return false;
+        }
+
+        return $this->subscription_end_date->isAfter(now()) && 
+               $this->subscription_end_date->isBefore(now()->addDays($days));
     }
 
-    // =============================================================================
-    // SCOPES
-    // =============================================================================
-    
-    /**
-     * Scope for users with active memberships
-     */
-    public function scopeWithActiveMembership($query)
+    // Get formatted expiry date
+    public function getFormattedExpiryDateAttribute()
     {
-        return $query->where('membership_status', 'active')
-                    ->where('membership_expires_at', '>', now());
+        if (!$this->subscription_end_date) {
+            return 'No active subscription';
+        }
+
+        return $this->subscription_end_date->format('M j, Y \a\t g:i A');
     }
 
-    /**
-     * Scope for users with expired memberships
-     */
-    public function scopeWithExpiredMembership($query)
+    // Scope for users with expiring memberships
+    public function scopeExpiringWithin($query, $days)
     {
-        return $query->where(function($q) {
-            $q->where('membership_status', 'expired')
-              ->orWhere('membership_expires_at', '<=', now());
-        });
+        return $query->where('is_subscription_active', true)
+            ->where('subscription_end_date', '>', now())
+            ->where('subscription_end_date', '<=', now()->addDays($days));
     }
 
-    /**
-     * Scope for users with pending memberships
-     */
-    public function scopeWithPendingMembership($query)
+    // Scope for expired memberships
+    public function scopeExpired($query)
     {
-        return $query->where('membership_status', 'pending');
+        return $query->where('subscription_end_date', '<', now())
+            ->orWhere('is_subscription_active', false);
     }
 
-
-    public function transactions()
+    // Scope for active memberships
+    public function scopeActive($query)
     {
-        return $this->hasMany(\App\Models\Transaction::class);
+        return $query->where('is_subscription_active', true)
+            ->where('subscription_end_date', '>', now());
     }
-    
-  
- 
-    
-   
-
-
-
 }

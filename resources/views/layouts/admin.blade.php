@@ -70,25 +70,30 @@
             </div>
 
             <nav class="space-y-2">
-                @php
-                    $adminRoutes = [
-                        ['route' => 'admin.dashboard', 'icon' => 'fas fa-home', 'label' => 'Dashboard'],
-                        ['route' => 'admin.books', 'icon' => 'fas fa-book', 'label' => 'Books'],
-                        ['route' => 'admin.videos', 'icon' => 'fas fa-video', 'label' => 'Videos'],
-                        ['route' => 'admin.memberships', 'icon' => 'fas fa-users', 'label' => 'Memberships'],
-                        ['route' => 'admin.users', 'icon' => 'fas fa-user-cog', 'label' => 'Users'],
-                        ['route' => 'admin.payments', 'icon' => 'fas fa-credit-card', 'label' => 'Payments']
-                    ];
-                @endphp
-                @foreach($adminRoutes as $route)
-                    <a href="{{ route($route['route']) }}" 
-                       class="block px-4 py-2 rounded hover:bg-admin-600 transition-colors 
-                              {{ request()->routeIs($route['route']) ? 'bg-admin-700' : '' }}">
-                        <i class="{{ $route['icon'] }} mr-3"></i>
-                        {{ $route['label'] }}
-                    </a>
-                @endforeach
-            </nav>
+            @php
+    $adminRoutes = [
+        ['route' => 'admin.dashboard', 'icon' => 'fas fa-home', 'label' => 'Dashboard'],
+        ['route' => 'admin.books', 'icon' => 'fas fa-book', 'label' => 'Books'], 
+        ['route' => 'admin.videos', 'icon' => 'fas fa-video', 'label' => 'Videos'],
+        ['route' => 'admin.memberships', 'icon' => 'fas fa-users', 'label' => 'Memberships'],
+        ['route' => 'admin.users', 'icon' => 'fas fa-user-cog', 'label' => 'Users'],
+        ['route' => 'admin.payments', 'icon' => 'fas fa-credit-card', 'label' => 'Payments'],
+        ['route' => 'admin.reports', 'icon' => 'fas fa-chart-line', 'label' => 'Reports'],
+        ['route' => 'admin.testimonials.index', 'icon' => 'fas fa-star', 'label' => 'Testimonials']
+    ];
+@endphp
+    
+    @foreach($adminRoutes as $route)
+        <a href="{{ route($route['route']) }}" 
+           class="block px-4 py-2 rounded hover:bg-admin-600 transition-colors 
+                  {{ request()->routeIs($route['route']) ? 'bg-admin-700' : '' }}">
+            <i class="{{ $route['icon'] }} mr-3"></i>
+            {{ $route['label'] }}
+        </a>
+    @endforeach
+</nav>
+
+
         </div>
 
         <!-- Main Content Area -->

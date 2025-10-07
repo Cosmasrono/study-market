@@ -4,187 +4,163 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Models\MembershipPayment;
+use App\Services\PayheroService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Validation\Rules\Password;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Password;
+use Illuminate\Auth\Events\PasswordReset;
+use Illuminate\Support\Str;
 
 class AuthController extends Controller
 {
-    // =============================================================================
-    // REGISTRATION
-    // =============================================================================
-
+    /**
+     * Show registration form
+     */
     public function showRegistrationForm()
     {
-        return view('auth.register', [
-            'membership_fee' => User::MEMBERSHIP_FEE
-        ]);
+        return view('auth.register');
     }
 
-    public function register(Request $request)
-    {
-        Log::info('Registration started', ['email' => $request->email]);
-        
+    /**
+     * Register new user with PayHero payment
+     */
+/**
+ * Register new user with PayHero payment
+ */
+public function register(Request $request)
+{
+    try {
+        // Validate registration data
+        $validated = $request->validate([
+            'name' => 'nullable|string|max:255',
+            'email' => 'required|email|unique:users,email',
+            'password' => [
+                'required',
+                'string',
+                'min:8',
+                'confirmed',
+                'regex:/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/'
+            ],
+            'phone_number' => 'required|regex:/^254[17]\d{8}$/|unique:users,phone_number',
+            'subscription_duration' => 'required|in:1_year,6_months',
+            'payment_method' => 'required|in:payhero',
+            'terms' => 'required|accepted'
+        ], [
+            'password.regex' => 'Password must contain uppercase, lowercase, number, and special character.',
+            'phone_number.regex' => 'Invalid phone number. Use format: 254712345678 or 254101234567',
+            'phone_number.unique' => 'This phone number is already registered.'
+        ]);
+
+        // Calculate subscription amount
+        $subscriptionAmount = 1; // 1 KSh for testing
+        $subscriptionDuration = $validated['subscription_duration']; // '1_year' or '6_months'
+
+        // Generate name from email if not provided
+        if (empty($validated['name'])) {
+            $validated['name'] = ucfirst(explode('@', $validated['email'])[0]);
+        }
+
+        // Start database transaction
+        DB::beginTransaction();
+
         try {
-            $validatedData = $request->validate([
-                'email' => 'required|email|unique:users,email',
-                'password' => [
-                    'required', 
-                    'confirmed', 
-                    Password::min(8)->letters()->mixedCase()->numbers()->symbols()
-                ],
-                'phone_number' => 'required|regex:/^254[0-9]{9}$/',
-                'payment_method' => 'required|in:mpesa,card',
-                'terms' => 'required|accepted'
-            ], [
-                'password' => 'Password must contain uppercase, lowercase, numbers, and symbols.',
-                'phone_number.regex' => 'Enter valid Kenyan number starting with 254.',
-                'email.unique' => 'Email already registered. Please login instead.',
-                'terms.accepted' => 'You must accept terms and conditions.'
-            ]);
-
-            DB::beginTransaction();
-
-            // Create user
+            // Create user account (inactive until payment)
             $user = User::create([
-                'email' => $validatedData['email'],
-                'password' => Hash::make($validatedData['password']),
-                'name' => explode('@', $validatedData['email'])[0],
-                'membership_status' => 'pending'
+                'name' => $validated['name'],
+                'email' => $validated['email'],
+                'password' => Hash::make($validated['password']),
+                'phone_number' => $validated['phone_number'], // ✅ Changed from 'phone' to 'phone_number'
+                'membership_status' => 'pending',
+                'is_subscription_active' => false,
+                'membership_fee_paid' => 0,
             ]);
 
-            // Create payment record
-            $payment = MembershipPayment::create([
+            // Generate unique payment reference
+            $transactionReference = 'PH-' . strtoupper(uniqid());
+
+            // Create membership payment record
+            $membershipPayment = MembershipPayment::create([
                 'user_id' => $user->id,
-                'amount' => User::MEMBERSHIP_FEE,
-                'payment_method' => $validatedData['payment_method'],
-                'transaction_id' => MembershipPayment::generateTransactionId(),
-                'phone_number' => $validatedData['phone_number'],
-                'status' => 'pending'
+                'amount' => $subscriptionAmount,
+                'phone_number' => $validated['phone_number'],
+                'reference' => $transactionReference,
+                'transaction_reference' => $transactionReference,
+                'status' => 'pending',
+                'payment_method' => 'payhero',
+                'subscription_duration' => $subscriptionDuration
+            ]);
+
+            Log::info('User Registration Created - Initiating PayHero Payment', [
+                'user_id' => $user->id,
+                'email' => $user->email,
+                'phone' => $validated['phone_number'],
+                'amount' => $subscriptionAmount,
+                'subscription' => $subscriptionDuration,
+                'reference' => $transactionReference
+            ]);
+
+            // Initialize PayHero payment
+            $payheroService = new PayheroService();
+            
+            $paymentResult = $payheroService->initiatePayment([
+                'user_id' => $user->id,
+                'amount' => $subscriptionAmount,
+                'phone_number' => $validated['phone_number'],
+                'transaction_reference' => $transactionReference,
+                'customer_name' => $user->name,
+                'email' => $user->email,
+                'description' => 'Membership - ' . $subscriptionDuration
             ]);
 
             DB::commit();
-            Log::info('User and payment created', ['user_id' => $user->id, 'payment_id' => $payment->id]);
 
-            // Process payment
-            return $this->processPayment($user, $payment, $validatedData);
-
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            return back()->withErrors($e->errors())
-                        ->withInput($request->except('password', 'password_confirmation'));
-                        
-        } catch (\Exception $e) {
-            DB::rollback();
-            Log::error('Registration failed', ['error' => $e->getMessage()]);
-            return back()->withErrors(['error' => 'Registration failed. Please try again.'])
-                        ->withInput($request->except('password', 'password_confirmation'));
-        }
-    }
-
-    // =============================================================================
-    // PAYMENT PROCESSING
-    // =============================================================================
-
-    private function processPayment(User $user, MembershipPayment $payment, array $data)
-    {
-        if ($data['payment_method'] === 'mpesa') {
-            return $this->processMpesaPayment($user, $payment, $data['phone_number']);
-        } else {
-            return $this->processCardPayment($user, $payment);
-        }
-    }
-
-    private function processMpesaPayment(User $user, MembershipPayment $payment, $phoneNumber)
-    {
-        Log::info('Processing M-Pesa payment', ['user_id' => $user->id, 'payment_id' => $payment->id]);
-
-        try {
-            $mpesaService = new \App\Services\MpesaService();
-            
-            $result = $mpesaService->stkPush(
-                $phoneNumber,
-                $payment->amount,
-                'MEMBERSHIP_' . $user->id . '_' . time(),
-                'Annual Membership Fee'
-            );
-
-            if ($result['success']) {
-                $payment->update([
-                    'payment_gateway' => 'safaricom',
-                    'reference_id' => $result['checkout_request_id'],
-                    'payment_data' => $result
-                ]);
-
-                return view('auth.payment-confirmation', [
-                    'user' => $user,
-                    'payment' => $payment,
-                    'phone_number' => $phoneNumber,
-                    'checkout_request_id' => $result['checkout_request_id'],
-                    'message' => $result['message'] ?? 'Check your phone for M-Pesa prompt'
-                ]);
-            } else {
-                Log::error('STK Push failed', ['error' => $result['message'] ?? 'Unknown error']);
-                return back()->withErrors(['error' => 'M-Pesa payment failed: ' . ($result['message'] ?? 'Please try again.')])
-                            ->withInput();
-            }
-
-        } catch (\Exception $e) {
-            Log::error('M-Pesa exception', ['error' => $e->getMessage()]);
-            return back()->withErrors(['error' => 'Payment system error. Please try again.'])
-                        ->withInput();
-        }
-    }
-
-    private function processCardPayment(User $user, MembershipPayment $payment)
-    {
-        Log::info('Processing card payment', ['user_id' => $user->id, 'payment_id' => $payment->id]);
-        
-        return view('auth.card-payment', [
-            'user' => $user,
-            'payment' => $payment
-        ]);
-    }
-
-    public function confirmPayment(Request $request)
-    {
-        try {
-            $request->validate([
-                'transaction_id' => 'required|exists:membership_payments,transaction_id'
+            Log::info('Payment Initiated Successfully - STK Push Sent', [
+                'user_id' => $user->id,
+                'reference' => $transactionReference,
+                'status' => $paymentResult['status'] ?? 'unknown',
+                'fallback' => $paymentResult['fallback'] ?? false,
+                'phone' => $validated['phone_number']
             ]);
 
-            $payment = MembershipPayment::where('transaction_id', $request->transaction_id)->first();
-            
-            if ($payment->status === 'completed') {
-                Auth::login($payment->user);
-                return redirect('/')->with('success', 'Welcome! Your membership is active.');
-            }
-
-            // Mark as completed (in production, verify with payment provider)
-            $payment->markAsCompleted();
-            Auth::login($payment->user);
-
-            Log::info('Payment confirmed and user logged in', ['user_id' => $payment->user->id]);
-
-            return redirect('/')->with('success', 'Registration completed successfully! Welcome to our platform.');
+            // Redirect to payment confirmation page
+            return redirect()->route('payment.confirmation', ['reference' => $transactionReference])
+                ->with('success', 'Registration successful! Please complete M-Pesa payment on your phone.');
 
         } catch (\Exception $e) {
-            Log::error('Payment confirmation failed', ['error' => $e->getMessage()]);
-            return back()->withErrors(['error' => 'Payment confirmation failed. Please try again.']);
+            DB::rollBack();
+            
+            Log::error('Registration/Payment Failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'email' => $validated['email']
+            ]);
+
+            return back()
+                ->withInput($request->except(['password', 'password_confirmation']))
+                ->with('error', 'Registration failed: ' . $e->getMessage());
         }
+
+    } catch (\Illuminate\Validation\ValidationException $e) {
+        return back()
+            ->withErrors($e->validator)
+            ->withInput($request->except(['password', 'password_confirmation']));
     }
+}
 
-    // =============================================================================
-    // LOGIN & LOGOUT
-    // =============================================================================
-
+    /**
+     * Show login form
+     */
     public function showLoginForm()
     {
         return view('auth.login');
     }
 
+    /**
+     * Login user
+     */
     public function login(Request $request)
     {
         $credentials = $request->validate([
@@ -194,123 +170,332 @@ class AuthController extends Controller
 
         if (Auth::attempt($credentials, $request->boolean('remember'))) {
             $request->session()->regenerate();
+
             $user = Auth::user();
-            
-            Log::info('User logged in', ['user_id' => $user->id, 'membership_status' => $user->membership_status]);
-            
-            // Redirect based on membership status
-            if ($user->membershipPending()) {
-                return redirect()->route('membership.payment')
-                    ->with('warning', 'Please complete your membership payment.');
-            }
 
-            if ($user->membershipExpired()) {
-                return redirect()->route('membership.payment')
-                    ->with('warning', 'Your membership has expired. Please renew to continue.');
-            }
+            Log::info('User logged in successfully', [
+                'user_id' => $user->id,
+                'email' => $user->email
+            ]);
 
-            if ($user->membershipSuspended()) {
-                return redirect()->route('home')
-                    ->with('error', 'Your membership is suspended. Contact support for assistance.');
-            }
-
-            return redirect()->intended('/')->with('success', 'Welcome back!');
+            return redirect()->intended(route('user.dashboard'))
+                ->with('success', 'Welcome back, ' . $user->name . '!');
         }
 
-        return back()->withErrors(['email' => 'Invalid email or password.'])->onlyInput('email');
+        return back()->withErrors([
+            'email' => 'The provided credentials do not match our records.',
+        ])->withInput($request->only('email'));
     }
 
+    /**
+     * Logout user
+     */
     public function logout(Request $request)
     {
-        $userId = Auth::id();
         Auth::logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();
-        
-        Log::info('User logged out', ['user_id' => $userId]);
-        return redirect('/')->with('success', 'Logged out successfully.');
+
+        return redirect()->route('login')->with('success', 'Logged out successfully!');
     }
 
-    // =============================================================================
-    // MEMBERSHIP MANAGEMENT
-    // =============================================================================
-
-    public function showMembershipPayment()
+   
+  
+ 
+    /**
+     * Show forgot password form
+     */
+    public function showForgotPasswordForm()
     {
-        $user = Auth::user();
-        
+        return view('auth.forgot-password');
+    }
+
+    /**
+     * Send password reset link
+     */
+    public function sendPasswordResetLink(Request $request)
+    {
+        $request->validate(['email' => 'required|email']);
+
+        $status = Password::sendResetLink(
+            $request->only('email')
+        );
+
+        return $status === Password::RESET_LINK_SENT
+            ? back()->with('success', __($status))
+            : back()->withErrors(['email' => __($status)]);
+    }
+
+    /**
+     * Show reset password form
+     */
+    public function showResetPasswordForm($token)
+    {
+        return view('auth.reset-password', ['token' => $token]);
+    }
+
+    /**
+     * Reset password
+     */
+    public function resetPassword(Request $request)
+    {
+        $request->validate([
+            'token' => 'required',
+            'email' => 'required|email',
+            'password' => 'required|min:8|confirmed',
+        ]);
+
+        $status = Password::reset(
+            $request->only('email', 'password', 'password_confirmation', 'token'),
+            function ($user, $password) {
+                $user->forceFill([
+                    'password' => Hash::make($password)
+                ])->setRememberToken(Str::random(60));
+
+                $user->save();
+
+                event(new PasswordReset($user));
+            }
+        );
+
+        return $status === Password::PASSWORD_RESET
+            ? redirect()->route('login')->with('success', __($status))
+            : back()->withErrors(['email' => [__($status)]]);
+    }
+
+    /**
+     * Handle session expired
+     */
+    public function handleSessionExpired()
+    {
+        return redirect()->route('login')->with('error', 'Your session has expired. Please login again.');
+    }
+
+    /**
+     * Extend session
+     */
+    public function extendSession(Request $request)
+    {
+        $request->session()->regenerate();
+        return response()->json(['success' => true]);
+    }
+
+
+
+
+    /**
+ * Show membership payment page
+ */
+public function showMembershipPayment()
+{
+    if (!auth()->check()) {
+        return redirect()->route('login')->with('error', 'Please login to continue');
+    }
+
+    $user = auth()->user();
+    
+    if ($user->hasMembership()) {
+        return redirect()->route('user.dashboard')
+            ->with('info', 'You already have an active membership');
+    }
+
+    $membershipPrice = 1; // 1 KSh for testing
+    
+    return view('membership.payment', compact('membershipPrice'));
+}
+
+/**
+ * Process membership payment
+ */
+public function processMembershipPayment(Request $request)
+{
+    try {
+        $validated = $request->validate([
+            'phone' => 'required|regex:/^254[17]\d{8}$/',
+            'amount' => 'required|numeric|min:1'
+        ]);
+
+        $user = auth()->user();
+
         if ($user->hasMembership()) {
-            return redirect('/')->with('info', 'You already have an active membership.');
+            return back()->with('error', 'You already have an active membership');
         }
 
-        $pendingPayment = $user->getPendingMembershipPayment();
+        // Generate unique reference
+        $reference = 'PH-' . strtoupper(uniqid());
 
-        return view('auth.membership-payment', [
-            'user' => $user,
-            'membership_fee' => User::MEMBERSHIP_FEE,
-            'payment' => $pendingPayment
+        // Create membership payment record
+        $payment = MembershipPayment::create([
+            'user_id' => $user->id,
+            'amount' => $validated['amount'],
+            'phone_number' => $validated['phone'],
+            'reference' => $reference,
+            'transaction_reference' => $reference,
+            'status' => 'pending',
+            'payment_method' => 'payhero',
+            'subscription_duration' => '1_year' // Changed to match your User model
         ]);
-    }
 
-    public function processMembershipPayment(Request $request)
-    {
+        Log::info('Membership Payment Created', [
+            'payment_id' => $payment->id,
+            'reference' => $reference,
+            'user_id' => $user->id,
+            'amount' => $validated['amount']
+        ]);
+
+        // Initialize PayHero payment
         try {
-            $validatedData = $request->validate([
-                'payment_method' => 'required|in:mpesa,card',
-                'phone_number' => 'required_if:payment_method,mpesa|regex:/^254[0-9]{9}$/',
-            ]);
-
-            $user = Auth::user();
-
-            // Use existing pending payment or create new one
-            $payment = $user->getPendingMembershipPayment() ?? MembershipPayment::create([
+            $payheroService = new PayheroService();
+            
+            $paymentResult = $payheroService->initiatePayment([
                 'user_id' => $user->id,
-                'amount' => User::MEMBERSHIP_FEE,
-                'payment_method' => $validatedData['payment_method'],
-                'transaction_id' => MembershipPayment::generateTransactionId(),
-                'phone_number' => $validatedData['phone_number'] ?? null,
-                'status' => 'pending'
+                'amount' => $validated['amount'],
+                'phone_number' => $validated['phone'],
+                'transaction_reference' => $reference,
+                'customer_name' => $user->name ?? 'Customer',
+                'description' => 'Annual Membership Payment'
             ]);
 
-            return $this->processPayment($user, $payment, $validatedData);
+            Log::info('PayHero Payment Initiated', [
+                'reference' => $reference,
+                'result' => $paymentResult
+            ]);
+
+            // Redirect to confirmation page
+            return redirect()->route('payment.confirmation', ['reference' => $reference])
+                ->with('success', 'Payment initiated. Please complete payment on your phone.');
 
         } catch (\Exception $e) {
-            Log::error('Membership payment processing failed', ['error' => $e->getMessage(), 'user_id' => Auth::id()]);
-            return back()->withErrors(['error' => 'Payment processing failed. Please try again.']);
+            Log::error('PayHero Initiation Failed', [
+                'reference' => $reference,
+                'error' => $e->getMessage()
+            ]);
+
+            return back()->with('error', 'Failed to initiate payment. Please try again.');
         }
-    }
 
-    // =============================================================================
-    // API ENDPOINTS
-    // =============================================================================
-
-    public function membershipStatus()
-    {
-        $user = Auth::user();
-        
-        return response()->json([
-            'membership_status' => $user->membership_status,
-            'membership_expires_at' => $user->membership_expires_at?->format('Y-m-d H:i:s'),
-            'has_membership' => $user->hasMembership(),
-            'days_until_expiry' => $user->days_until_expiry,
-            'pending_payments' => $user->membershipPayments()->where('status', 'pending')->count()
+    } catch (\Illuminate\Validation\ValidationException $e) {
+        return back()->withErrors($e->validator)->withInput();
+    } catch (\Exception $e) {
+        Log::error('Membership payment processing failed', [
+            'error' => $e->getMessage(),
+            'user_id' => auth()->id()
         ]);
-    }
 
-    public function checkMembershipPaymentStatus($transaction_id)
-    {
-        $payment = MembershipPayment::where('transaction_id', $transaction_id)->first();
-        
-        if (!$payment) {
-            return response()->json(['error' => 'Payment not found'], 404);
+        return back()->with('error', 'Payment processing failed. Please try again.');
+    }
+}
+
+/**
+ * Show membership renewal page
+ */
+public function showMembershipRenewal()
+{
+    $user = auth()->user();
+    $membershipPrice = 1; // 1 KSh for testing
+    
+    return view('membership.renew', compact('user', 'membershipPrice'));
+}
+
+/**
+ * Process membership renewal
+ */
+public function processMembershipRenewal(Request $request)
+{
+    try {
+        $validated = $request->validate([
+            'phone' => 'required|regex:/^254[17]\d{8}$/',
+            'amount' => 'required|numeric|min:1'
+        ]);
+
+        $user = auth()->user();
+        $reference = 'REN-' . strtoupper(uniqid());
+
+        // Create renewal payment record
+        $payment = MembershipPayment::create([
+            'user_id' => $user->id,
+            'amount' => $validated['amount'],
+            'phone_number' => $validated['phone'],
+            'reference' => $reference,
+            'transaction_reference' => $reference,
+            'status' => 'pending',
+            'payment_method' => 'payhero',
+            'subscription_duration' => '1_year',
+            'is_renewal' => true
+        ]);
+
+        // Initialize payment
+        try {
+            $payheroService = new PayheroService();
+            
+            $paymentResult = $payheroService->initiatePayment([
+                'user_id' => $user->id,
+                'amount' => $validated['amount'],
+                'phone_number' => $validated['phone'],
+                'transaction_reference' => $reference,
+                'customer_name' => $user->name ?? 'Customer',
+                'description' => 'Membership Renewal'
+            ]);
+
+            return redirect()->route('payment.confirmation', ['reference' => $reference])
+                ->with('success', 'Renewal payment initiated. Please complete payment on your phone.');
+
+        } catch (\Exception $e) {
+            Log::error('PayHero Renewal Failed', [
+                'reference' => $reference,
+                'error' => $e->getMessage()
+            ]);
+
+            return back()->with('error', 'Failed to initiate payment. Please try again.');
         }
-        
-        return response()->json([
-            'status' => $payment->status,
-            'amount' => $payment->amount,
-            'payment_method' => $payment->payment_method,
-            'created_at' => $payment->created_at->format('Y-m-d H:i:s'),
-            'paid_at' => $payment->paid_at?->format('Y-m-d H:i:s')
+
+    } catch (\Exception $e) {
+        Log::error('Membership renewal failed', [
+            'error' => $e->getMessage(),
+            'user_id' => auth()->id()
         ]);
+
+        return back()->with('error', 'Renewal processing failed. Please try again.');
     }
+}
+
+/**
+ * Show membership status
+ */
+public function membershipStatus()
+{
+    $user = auth()->user();
+    
+    $membershipPayments = $user->membershipPayments()
+        ->latest()
+        ->paginate(10);
+    
+    return view('membership.status', compact('user', 'membershipPayments'));
+}
+
+/**
+ * Show membership history
+ */
+public function membershipHistory()
+{
+    $user = auth()->user();
+    
+    $payments = $user->membershipPayments()
+        ->orderBy('created_at', 'desc')
+        ->paginate(15);
+    
+    return view('membership.history', compact('payments'));
+}
+
+/**
+ * Show manual payment page
+ */
+public function showManualPayment($reference)
+{
+    $payment = MembershipPayment::where('reference', $reference)
+        ->orWhere('transaction_reference', $reference)
+        ->firstOrFail();
+    
+    return view('payment.manual', compact('payment'));
+}
 }

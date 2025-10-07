@@ -27,13 +27,12 @@ return [
     |
     | Here you may specify the number of minutes that you wish the session
     | to be allowed to remain idle before it expires. If you want them
-    | to expire immediately when the browser is closed then you may
-    | indicate that via the expire_on_close configuration option.
+    | to immediately expire on the browser closing, set that option.
     |
     */
 
-    'lifetime' => (int) env('SESSION_LIFETIME', 240), // Increased from 120 to 240 minutes
-    'expire_on_close' => env('SESSION_EXPIRE_ON_CLOSE', false),
+    'lifetime' => env('SESSION_LIFETIME', 120), // Increased to 2 hours
+    'expire_on_close' => false,
 
     /*
     |--------------------------------------------------------------------------
@@ -41,12 +40,25 @@ return [
     |--------------------------------------------------------------------------
     |
     | This option allows you to easily specify that all of your session data
-    | should be encrypted before it's stored. All encryption is performed
-    | automatically by Laravel and you may use the session like normal.
+    | should be encrypted before it is stored.
     |
     */
 
-    'encrypt' => env('SESSION_ENCRYPT', true), // Enable encryption
+    'encrypt' => true,
+
+    /*
+    |--------------------------------------------------------------------------
+    | Session Locking
+    |--------------------------------------------------------------------------
+    |
+    | Defines how session data is locked to prevent race conditions.
+    |
+    */
+
+    'lock' => [
+        'driver' => env('SESSION_LOCK_DRIVER', 'file'),
+        'connection' => env('SESSION_LOCK_CONNECTION', null),
+    ],
 
     /*
     |--------------------------------------------------------------------------
@@ -126,10 +138,7 @@ return [
     |
     */
 
-    'cookie' => env(
-        'SESSION_COOKIE',
-        Str::slug(env('APP_NAME', 'laravel')).'-session'
-    ),
+    'cookie' => env('SESSION_COOKIE', 'payhero_session'),
 
     /*
     |--------------------------------------------------------------------------
@@ -168,7 +177,7 @@ return [
     |
     */
 
-    'secure' => env('SESSION_SECURE_COOKIE'),
+    'secure' => env('SESSION_SECURE_COOKIE', false),
 
     /*
     |--------------------------------------------------------------------------
@@ -198,7 +207,7 @@ return [
     |
     */
 
-    'same_site' => env('SESSION_SAME_SITE', 'lax'), // Changed from null to lax
+    'same_site' => env('SESSION_SAME_SITE', 'lax'),
 
     /*
     |--------------------------------------------------------------------------

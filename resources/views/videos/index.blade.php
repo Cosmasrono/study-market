@@ -6,7 +6,7 @@
 <div class="container mx-auto px-4 py-8">
     <div class="mb-8">
         <h1 class="text-3xl font-bold text-gray-800 mb-2">Available Videos</h1>
-        <p class="text-gray-600">All logged-in users can watch videos online. Downloads require individual payment.</p>
+        <p class="text-gray-600">All logged-in users can watch videos online for free.</p>
     </div>
 
     @if($errors->any())
@@ -48,8 +48,7 @@
                 </div>
                 <div class="ml-3">
                     <p class="text-sm text-blue-700">
-                        <strong>Free Watching:</strong> You can watch all videos online for free. 
-                        <strong>Downloads:</strong> Purchase individual videos to download and keep them.
+                        <strong>Free Watching:</strong> You can watch all videos online for free.
                     </p>
                 </div>
             </div>
@@ -155,18 +154,12 @@
                         </div>
                     @endif
 
-                    <!-- Status Overlay on Thumbnail -->
+                    <!-- Status Overlay on Thumbnail - Removed price badge -->
                     <div class="absolute top-2 right-2">
                         @auth
-                            @if(isset($video->can_download) && $video->can_download)
-                                <span class="bg-green-500 text-white text-xs px-2 py-1 rounded-full shadow-lg">
-                                    ✓ Owned
-                                </span>
-                            @else
-                                <span class="bg-blue-500 text-white text-xs px-2 py-1 rounded-full shadow-lg">
-                                    Free
-                                </span>
-                            @endif
+                            <span class="bg-blue-500 text-white text-xs px-2 py-1 rounded-full shadow-lg">
+                                Free
+                            </span>
                         @else
                             <span class="bg-orange-500 text-white text-xs px-2 py-1 rounded-full shadow-lg">
                                 Login
@@ -180,13 +173,6 @@
                             <h3 class="text-xl font-semibold text-gray-800 line-clamp-2 flex-1">
                                 {{ $video->title }}
                             </h3>
-                            
-                            <!-- Download Price Badge -->
-                            <div class="ml-2 flex-shrink-0">
-                                <span class="bg-red-100 text-red-900 text-xs font-medium px-2.5 py-0.5 rounded-full">
-                                    Download: KSh {{ number_format($video->price) }}
-                                </span>
-                            </div>
                         </div>
 
                         <!-- Description -->
@@ -204,15 +190,6 @@
                                 </svg>
                                 Free to watch online
                             </div>
-                            
-                            @if(isset($video->can_download) && $video->can_download)
-                                <div class="flex items-center text-blue-600 text-sm mb-4">
-                                    <svg class="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"></path>
-                                    </svg>
-                                    Download purchased
-                                </div>
-                            @endif
                         @else
                             <div class="flex items-center text-orange-600 text-sm mb-4">
                                 <svg class="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
@@ -236,7 +213,7 @@
                         </div>
                     </div>
 
-                    <!-- Action Buttons -->
+                    <!-- Action Buttons - Download buttons removed -->
                     <div class="px-6 pb-6">
                         @auth
                             <!-- Authenticated users can watch all videos -->
@@ -249,26 +226,10 @@
                                     Watch Video (Free)
                                 </a>
                                 
-                                <div class="flex space-x-2">
-                                    @if(isset($video->can_download) && $video->can_download)
-                                        <!-- User has purchased download -->
-                                        <a href="{{ route('videos.download', $video) }}" 
-                                           class="flex-1 bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded transition-colors duration-200 text-center block text-sm">
-                                            Download
-                                        </a>
-                                    @else
-                                        <!-- User needs to purchase download -->
-                                        <a href="{{ route('mpesa.payment.video', $video) }}" 
-                                           class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded transition-colors duration-200 text-center block text-sm">
-                                            Buy Download (KSh {{ number_format($video->price) }})
-                                        </a>
-                                    @endif
-                                    
-                                    <a href="{{ route('videos.show', $video) }}" 
-                                       class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-2 px-4 rounded transition-colors duration-200 text-center block text-sm">
-                                        Details
-                                    </a>
-                                </div>
+                                <a href="{{ route('videos.show', $video) }}" 
+                                   class="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-2 px-4 rounded transition-colors duration-200 text-center block">
+                                    View Details
+                                </a>
                             </div>
                         @else
                             <!-- Guest users need to login -->

@@ -43,4 +43,21 @@ return [
         'environment' => env('MPESA_ENVIRONMENT', 'sandbox'),
     ],
 
+  'payhero' => [
+        'username' => env('PAYHERO_USERNAME'),
+        'password' => env('PAYHERO_PASSWORD'),
+        'channel_id' => env('PAYHERO_CHANNEL_ID'),
+        'environment' => env('PAYHERO_ENVIRONMENT', 'sandbox'),
+        'provider' => 'm-pesa',
+        'paybill' => env('PAYHERO_PAYBILL', '4103208'),
+        
+        // API Configuration
+        'base_url' => 'https://backend.payhero.co.ke/api/v2',
+        'timeout' => 30,
+        'max_retries' => 3,
+        
+        // Callback URL
+        'callback_url' => env('APP_URL') . '/payhero/callback',
+    ],
+
 ];

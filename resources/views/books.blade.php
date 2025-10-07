@@ -6,7 +6,7 @@
 <div class="container mx-auto px-4 py-8">
     <div class="mb-8">
         <h1 class="text-3xl font-bold text-gray-800 mb-2">Available Books</h1>
-        <p class="text-gray-600">All logged-in users can read books online. Downloads require individual payment.</p>
+        <p class="text-gray-600">All logged-in users can read books online for free.</p>
     </div>
 
     @if($errors->any())
@@ -48,8 +48,7 @@
                 </div>
                 <div class="ml-3">
                     <p class="text-sm text-blue-700">
-                        <strong>Free Reading:</strong> You can read all books online for free. 
-                        <strong>Downloads:</strong> Purchase individual books to download and keep them.
+                        <strong>Free Reading:</strong> You can read all books online for free.
                     </p>
                 </div>
             </div>
@@ -134,30 +133,17 @@
                                 </div>
                             @endif
 
-                            <!-- Status Overlay -->
+                            <!-- Status Overlay - Removed price badge -->
                             <div class="absolute top-2 right-2">
                                 @auth
-                                    @if(isset($book->can_download) && $book->can_download)
-                                        <span class="bg-green-500 text-white text-xs px-2 py-1 rounded-full shadow-lg">
-                                            ✓ Owned
-                                        </span>
-                                    @else
-                                        <span class="bg-blue-500 text-white text-xs px-2 py-1 rounded-full shadow-lg">
-                                            Free
-                                        </span>
-                                    @endif
+                                    <span class="bg-blue-500 text-white text-xs px-2 py-1 rounded-full shadow-lg">
+                                        Free
+                                    </span>
                                 @else
                                     <span class="bg-orange-500 text-white text-xs px-2 py-1 rounded-full shadow-lg">
                                         Login
                                     </span>
                                 @endauth
-                            </div>
-
-                            <!-- Price Badge -->
-                            <div class="absolute bottom-2 left-2">
-                                <span class="bg-black/80 text-white text-xs px-2 py-1 rounded shadow-lg">
-                                    KSh {{ number_format($book->price) }}
-                                </span>
                             </div>
                         </div>
 
@@ -183,25 +169,13 @@
                                 </div>
                             </div>
 
-                            <!-- Action Buttons -->
+                            <!-- Action Buttons - Download buttons removed -->
                             <div class="space-y-2">
                                 @auth
                                     <a href="{{ route('books.view', $book) }}" 
                                        class="block w-full bg-green-600 hover:bg-green-700 text-white text-sm font-medium py-2 px-3 rounded text-center transition-colors">
                                         Read Free
                                     </a>
-                                    
-                                    @if(isset($book->can_download) && $book->can_download)
-                                        <a href="{{ route('books.download', $book) }}" 
-                                           class="block w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2 px-3 rounded text-center transition-colors">
-                                            Download
-                                        </a>
-                                    @else
-                                        <a href="{{ route('mpesa.payment.book', $book) }}" 
-                                           class="block w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2 px-3 rounded text-center transition-colors">
-                                            Buy Download
-                                        </a>
-                                    @endif
                                 @else
                                     <a href="{{ route('login') }}" 
                                        class="block w-full bg-green-600 hover:bg-green-700 text-white text-sm font-medium py-2 px-3 rounded text-center transition-colors">
@@ -235,6 +209,40 @@
             <p class="text-gray-500">Check back later for new books.</p>
         </div>
     @endif
+
+    <!-- Testimonials Section -->
+    <section class="testimonials py-5 bg-light">
+        <div class="container">
+            <h2 class="text-center mb-4">What Our Customers Say</h2>
+            <div class="row">
+                @php
+                    $testimonials = \App\Models\Testimonial::active()->get();
+                @endphp
+                @foreach($testimonials as $testimonial)
+                <div class="col-md-4 mb-4">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center mb-3">
+                                <div>
+                                    <h5 class="card-title mb-1">{{ $testimonial->name }}</h5>
+                                    @if($testimonial->position && $testimonial->company)
+                                        <p class="card-subtitle text-muted">{{ $testimonial->position }} at {{ $testimonial->company }}</p>
+                                    @endif
+                                </div>
+                            </div>
+                            <p class="card-text">{{ $testimonial->content }}</p>
+                            <div class="rating">
+                                @for($i = 1; $i <= 5; $i++)
+                                    <i class="fas fa-star {{ $i <= $testimonial->rating ? 'text-warning' : 'text-muted' }}"></i>
+                                @endfor
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                @endforeach
+            </div>
+        </div>
+    </section>
 </div>
 
 <style>

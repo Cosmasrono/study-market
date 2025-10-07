@@ -12,59 +12,70 @@ class MembershipPayment extends Model
     protected $fillable = [
         'user_id',
         'amount',
-        'payment_method',
-        'transaction_id',
-        'reference_id',
-        'status',
-        'payment_gateway',
-        'payment_data',
         'phone_number',
+        'reference',
+        'transaction_reference',
+        'payhero_reference',
+        'customer_name',
+        'status',
+        'payment_method',
+        'subscription_duration', // Will store: '3_months', '6_months', '9_months', '1_year'
+        'is_renewal',
         'paid_at',
+        'mpesa_receipt_number',
         'failure_reason'
     ];
 
     protected $casts = [
-        'payment_data' => 'array',
         'paid_at' => 'datetime',
+        'is_renewal' => 'boolean',
         'amount' => 'decimal:2'
     ];
 
+    /**
+     * Relationship: User
+     */
     public function user()
     {
         return $this->belongsTo(User::class);
     }
 
     /**
-     * Mark payment as completed
+     * Check if payment is completed
      */
-    public function markAsCompleted($referenceId = null)
+    public function isCompleted()
     {
-        $this->update([
-            'status' => 'completed',
-            'reference_id' => $referenceId,
-            'paid_at' => now()
-        ]);
-
-        // Activate user membership
-        $this->user->activateMembership();
+        return $this->status === 'completed' || $this->status === 'paid';
     }
 
     /**
-     * Mark payment as failed
+     * Check if payment is pending
      */
-    public function markAsFailed($reason = null)
+    public function isPending()
     {
-        $this->update([
-            'status' => 'failed',
-            'failure_reason' => $reason
-        ]);
+        return $this->status === 'pending';
     }
 
     /**
-     * Generate unique transaction ID
+     * Check if payment failed
      */
-    public static function generateTransactionId()
+    public function isFailed()
     {
-        return 'MEMBERSHIP_' . time() . '_' . str_pad(rand(0, 9999), 4, '0', STR_PAD_LEFT);
+        return $this->status === 'failed';
+    }
+
+    /**
+     * Get subscription duration in months
+     */
+    public function getSubscriptionMonthsAttribute()
+    {
+        $durations = [
+            '3_months' => 3,
+            '6_months' => 6,
+            '9_months' => 9,
+            '1_year' => 12
+        ];
+
+        return $durations[$this->subscription_duration] ?? 12;
     }
 }

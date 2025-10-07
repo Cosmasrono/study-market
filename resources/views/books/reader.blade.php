@@ -44,29 +44,6 @@
                     </button>
                 </div>
                 
-                <!-- Download Button -->
-                @auth
-                    @php
-                        $canDownload = \App\Models\Transaction::where('user_id', auth()->id())
-                            ->where('content_type', 'book')
-                            ->where('content_id', $book->id)
-                            ->where('status', 'paid')
-                            ->exists();
-                    @endphp
-                    
-                    @if($canDownload)
-                        <a href="{{ route('books.download', $book) }}" 
-                           class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm">
-                            Download
-                        </a>
-                    @else
-                        <a href="{{ route('mpesa.payment.book', $book) }}" 
-                           class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm">
-                            Buy (KSh {{ number_format($book->price) }})
-                        </a>
-                    @endif
-                @endauth
-                
                 <!-- Viewer Options -->
                 <div class="relative">
                     <button onclick="toggleViewerMenu()" 

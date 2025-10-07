@@ -19,6 +19,83 @@
         </div>
     </div>
 
+
+
+    <!-- Quick Reports Section -->
+<div class="bg-white rounded-lg shadow-md p-6 mb-8">
+    <div class="flex items-center justify-between mb-4">
+        <div>
+            <h3 class="text-lg font-semibold text-gray-800">Quick Reports</h3>
+            <p class="text-sm text-gray-500">Generate user-related reports</p>
+        </div>
+        <a href="{{ route('admin.reports') }}" class="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
+            View All Reports →
+        </a>
+    </div>
+    
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <!-- User Activity Report -->
+        <div class="bg-blue-50 p-4 rounded-lg border border-blue-200">
+            <div class="flex items-center mb-3">
+                <div class="bg-blue-500 rounded-full p-2 mr-3">
+                    <i class="fas fa-chart-bar text-white"></i>
+                </div>
+                <div>
+                    <h4 class="font-medium text-gray-900">User Activity</h4>
+                    <p class="text-xs text-gray-500">Engagement & spending</p>
+                </div>
+            </div>
+            <form method="POST" action="{{ route('admin.reports.download') }}">
+                @csrf
+                <input type="hidden" name="report_type" value="user_activity">
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded text-sm transition-colors">
+                    <i class="fas fa-download mr-2"></i>Download CSV
+                </button>
+            </form>
+        </div>
+
+        <!-- User Registrations Report -->
+        <div class="bg-green-50 p-4 rounded-lg border border-green-200">
+            <div class="flex items-center mb-3">
+                <div class="bg-green-500 rounded-full p-2 mr-3">
+                    <i class="fas fa-user-plus text-white"></i>
+                </div>
+                <div>
+                    <h4 class="font-medium text-gray-900">Registrations</h4>
+                    <p class="text-xs text-gray-500">Monthly sign-ups</p>
+                </div>
+            </div>
+            <form method="POST" action="{{ route('admin.reports.download') }}">
+                @csrf
+                <input type="hidden" name="report_type" value="user_registrations">
+                <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded text-sm transition-colors">
+                    <i class="fas fa-download mr-2"></i>Download CSV
+                </button>
+            </form>
+        </div>
+
+        <!-- Membership Status Report -->
+        <div class="bg-purple-50 p-4 rounded-lg border border-purple-200">
+            <div class="flex items-center mb-3">
+                <div class="bg-purple-500 rounded-full p-2 mr-3">
+                    <i class="fas fa-id-card text-white"></i>
+                </div>
+                <div>
+                    <h4 class="font-medium text-gray-900">Membership Status</h4>
+                    <p class="text-xs text-gray-500">All users overview</p>
+                </div>
+            </div>
+            <form method="POST" action="{{ route('admin.reports.download') }}">
+                @csrf
+                <input type="hidden" name="report_type" value="membership_status">
+                <button type="submit" class="w-full bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded text-sm transition-colors">
+                    <i class="fas fa-download mr-2"></i>Download CSV
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+
     <!-- Statistics Cards -->
     <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
         <div class="bg-white rounded-lg shadow p-6">

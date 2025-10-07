@@ -1153,4 +1153,338 @@ public function updateUserMembership(Request $request, $userId)
                 ->withInput($request->except(['video_file']));
         }
     }
+
+    public function showReports()
+    {
+        return view('admin.reports');
+    }
+
+    public function downloadReport(Request $request)
+    {
+        $reportType = $request->input('report_type');
+
+        switch ($reportType) {
+            case 'membership_status':
+                return $this->generateMembershipStatusReport();
+            case 'expiring_memberships':
+                return $this->generateExpiringMembershipsReport();
+            case 'revenue_summary':
+                return $this->generateRevenueSummaryReport();
+            case 'payment_transactions':
+                return $this->generatePaymentTransactionsReport();
+            case 'user_registrations':
+                return $this->generateUserRegistrationsReport();
+            case 'user_activity':
+                return $this->generateUserActivityReport();
+            default:
+                return back()->with('error', 'Invalid report type');
+        }
+    }
+
+    private function generateMembershipStatusReport()
+    {
+        $users = \App\Models\User::select('id', 'name', 'email', 'membership_status', 'membership_expires_at')
+            ->get();
+
+        $filename = 'membership_status_' . now()->format('Y-m-d') . '.csv';
+        
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ];
+
+        $handle = fopen('php://output', 'w');
+        fputcsv($handle, ['User ID', 'Name', 'Email', 'Membership Status', 'Expiration Date']);
+
+        foreach ($users as $user) {
+            fputcsv($handle, [
+                $user->id,
+                $user->name,
+                $user->email,
+                $user->membership_status,
+                $user->membership_expires_at ? $user->membership_expires_at->format('Y-m-d H:i:s') : 'N/A'
+            ]);
+        }
+
+        fclose($handle);
+        return response()->stream(
+            function() use ($handle) {},
+            200,
+            $headers
+        );
+    }
+
+    private function generateExpiringMembershipsReport()
+    {
+        $expiringUsers = \App\Models\User::where('membership_status', 'active')
+            ->where('membership_expires_at', '<=', now()->addDays(30))
+            ->select('id', 'name', 'email', 'membership_expires_at')
+            ->get();
+
+        $filename = 'expiring_memberships_' . now()->format('Y-m-d') . '.csv';
+        
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ];
+
+        $handle = fopen('php://output', 'w');
+        fputcsv($handle, ['User ID', 'Name', 'Email', 'Membership Expiration Date']);
+
+        foreach ($expiringUsers as $user) {
+            fputcsv($handle, [
+                $user->id,
+                $user->name,
+                $user->email,
+                $user->membership_expires_at->format('Y-m-d H:i:s')
+            ]);
+        }
+
+        fclose($handle);
+        return response()->stream(
+            function() use ($handle) {},
+            200,
+            $headers
+        );
+    }
+
+    private function generateRevenueSummaryReport()
+    {
+        $transactions = \App\Models\Transaction::where('status', 'paid')
+            ->selectRaw('DATEPART(year, created_at) as year, DATEPART(month, created_at) as month, SUM(amount) as total_revenue')
+            ->groupBy(\DB::raw('DATEPART(year, created_at), DATEPART(month, created_at)'))
+            ->orderBy('year', 'desc')
+            ->orderBy('month', 'desc')
+            ->get();
+
+        $filename = 'revenue_summary_' . now()->format('Y-m-d') . '.csv';
+        
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ];
+
+        $handle = fopen('php://output', 'w');
+        fputcsv($handle, ['Year', 'Month', 'Total Revenue (KSh)']);
+
+        foreach ($transactions as $transaction) {
+            fputcsv($handle, [
+                $transaction->year,
+                $transaction->month,
+                number_format($transaction->total_revenue, 2)
+            ]);
+        }
+
+        fclose($handle);
+        return response()->stream(
+            function() use ($handle) {},
+            200,
+            $headers
+        );
+    }
+
+    private function generatePaymentTransactionsReport()
+    {
+        $transactions = \App\Models\Transaction::with('user')
+            ->where('status', 'paid')
+            ->select('id', 'user_id', 'amount', 'content_type', 'content_id', 'status', 'created_at')
+            ->get();
+
+        $filename = 'payment_transactions_' . now()->format('Y-m-d') . '.csv';
+        
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ];
+
+        $handle = fopen('php://output', 'w');
+        fputcsv($handle, ['Transaction ID', 'User ID', 'User Name', 'Amount (KSh)', 'Content Type', 'Content ID', 'Status', 'Transaction Date']);
+
+        foreach ($transactions as $transaction) {
+            fputcsv($handle, [
+                $transaction->id,
+                $transaction->user_id,
+                $transaction->user->name ?? 'N/A',
+                number_format($transaction->amount, 2),
+                $transaction->content_type,
+                $transaction->content_id,
+                $transaction->status,
+                $transaction->created_at->format('Y-m-d H:i:s')
+            ]);
+        }
+
+        fclose($handle);
+        return response()->stream(
+            function() use ($handle) {},
+            200,
+            $headers
+        );
+    }
+
+    private function generateUserRegistrationsReport()
+    {
+        $users = \App\Models\User::selectRaw('DATEPART(year, created_at) as year, DATEPART(month, created_at) as month, COUNT(*) as total_registrations')
+            ->groupBy(\DB::raw('DATEPART(year, created_at), DATEPART(month, created_at)'))
+            ->orderBy('year', 'desc')
+            ->orderBy('month', 'desc')
+            ->get();
+
+        $filename = 'user_registrations_' . now()->format('Y-m-d') . '.csv';
+        
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ];
+
+        $handle = fopen('php://output', 'w');
+        fputcsv($handle, ['Year', 'Month', 'Total Registrations']);
+
+        foreach ($users as $user) {
+            fputcsv($handle, [
+                $user->year,
+                $user->month,
+                $user->total_registrations
+            ]);
+        }
+
+        fclose($handle);
+        return response()->stream(
+            function() use ($handle) {},
+            200,
+            $headers
+        );
+    }
+
+    private function generateUserActivityReport()
+{
+    $users = \App\Models\User::with(['transactions', 'membershipPayments'])
+        ->select('id', 'name', 'email', 'created_at')  // Changed to created_at
+        ->get()
+        ->map(function($user) {
+            return [
+                'user_id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'registered_date' => $user->created_at->format('Y-m-d H:i:s'),
+                'total_transactions' => $user->transactions->count(),
+                'total_spent' => $user->transactions->sum('amount'),
+                'total_membership_payments' => $user->membershipPayments->count(),
+                'total_membership_spent' => $user->membershipPayments->sum('amount')
+            ];
+        });
+
+    $filename = 'user_activity_' . now()->format('Y-m-d') . '.csv';
+    
+    $headers = [
+        'Content-Type' => 'text/csv',
+        'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+    ];
+
+    $callback = function() use ($users) {
+        $handle = fopen('php://output', 'w');
+        fputcsv($handle, ['User ID', 'Name', 'Email', 'Registered Date', 'Total Transactions', 'Total Spent (KSh)', 'Total Membership Payments', 'Total Membership Spent (KSh)']);
+
+        foreach ($users as $user) {
+            fputcsv($handle, [
+                $user['user_id'],
+                $user['name'],
+                $user['email'],
+                $user['registered_date'],
+                $user['total_transactions'],
+                number_format($user['total_spent'], 2),
+                $user['total_membership_payments'],
+                number_format($user['total_membership_spent'], 2)
+            ]);
+        }
+
+        fclose($handle);
+    };
+
+    return response()->stream($callback, 200, $headers);
+}
+
+
+// Testimonials Management
+public function testimonialsList()
+{
+    $testimonials = \App\Models\Testimonial::with('user')
+        ->latest()
+        ->paginate(15);
+    return view('admin.testimonials.index', compact('testimonials'));
+}
+
+public function testimonialsCreate()
+{
+    return view('admin.testimonials.create');
+}
+
+public function testimonialsStore(Request $request)
+{
+    $validated = $request->validate([
+        'name' => 'required|string|max:255',
+        'content' => 'required|string',
+        'position' => 'nullable|string|max:255',
+        'company' => 'nullable|string|max:255',
+        'rating' => 'required|integer|min:1|max:5',
+        'is_active' => 'boolean'
+    ]);
+
+    \App\Models\Testimonial::create(array_merge($validated, [
+        'status' => 'approved',
+        'admin_id' => auth('admin')->id()
+    ]));
+
+    return redirect()->route('admin.testimonials.index')
+        ->with('success', 'Testimonial created successfully!');
+}
+
+public function testimonialsEdit($id)
+{
+    $testimonial = \App\Models\Testimonial::findOrFail($id);
+    return view('admin.testimonials.edit', compact('testimonial'));
+}
+
+public function testimonialsUpdate(Request $request, $id)
+{
+    $testimonial = \App\Models\Testimonial::findOrFail($id);
+    
+    $validated = $request->validate([
+        'name' => 'required|string|max:255',
+        'content' => 'required|string',
+        'position' => 'nullable|string|max:255',
+        'company' => 'nullable|string|max:255',
+        'rating' => 'required|integer|min:1|max:5',
+        'is_active' => 'boolean'
+    ]);
+
+    $testimonial->update($validated);
+
+    return redirect()->route('admin.testimonials.index')
+        ->with('success', 'Testimonial updated successfully!');
+}
+
+public function testimonialsDestroy($id)
+{
+    $testimonial = \App\Models\Testimonial::findOrFail($id);
+    $testimonial->delete();
+
+    return redirect()->route('admin.testimonials.index')
+        ->with('success', 'Testimonial deleted successfully!');
+}
+
+public function testimonialsApprove($id)
+{
+    $testimonial = \App\Models\Testimonial::findOrFail($id);
+    $testimonial->approve(auth('admin')->user());
+
+    return back()->with('success', 'Testimonial approved!');
+}
+
+public function testimonialsReject(Request $request, $id)
+{
+    $testimonial = \App\Models\Testimonial::findOrFail($id);
+    $testimonial->reject(auth('admin')->user(), $request->admin_comment);
+
+    return back()->with('success', 'Testimonial rejected!');
+}
 }
